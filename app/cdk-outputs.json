@@ -1,0 +1,8 @@
+{
+  "SMGTStack": {
+    "idptextractsnsrole": "arn:aws:iam::710096454740:role/idp-textract-service-sns-role",
+    "textractoutputbucketname": "idp-textract-output-bucket-45d0c9d1-75f5-5824-9af7-c2a4131e76eb",
+    "idptextracttopicarn": "arn:aws:sns:eu-central-1:710096454740:idp-textract-topic",
+    "idpgroundtruthconsolidationtopicarn": "arn:aws:sns:eu-central-1:710096454740:idp-groundtruth-consolidation-topic"
+  }
+}

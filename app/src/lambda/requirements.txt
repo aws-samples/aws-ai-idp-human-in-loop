@@ -1,0 +1,6 @@
+boto3==1.26.105
+amazon-textract-response-parser
+requests
+marshmallow
+Pillow
+pypdf

@@ -1,0 +1,1 @@
+{"source": "HITL Textract Review","fileExtension": "pdf","inputS3Prefix": "s3://sagemaker-us-east-1-710096454740/groundtruth/document/pages/1","outputS3Prefix": "s3://sagemaker-us-east-1-710096454740/groundtruth/document/pages/1/","numberOfPages": 1, "textractJobId": "d7a6f438c9c811edafa10242ac120002","configuration": { "defaultConfidenceThreshold": 90 }}

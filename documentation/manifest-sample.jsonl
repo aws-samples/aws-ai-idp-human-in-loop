@@ -1,0 +1,1 @@
+{"source": "HITL Textract Review","fileExtension": "pdf","inputS3Prefix": "s3://my-bucket/groundtruth/document/pages/1","outputS3Prefix": "s3://my-bucket/groundtruth/document/pages/1/","numberOfPages": 1, "textractJobId": "xxxxxxxxxxxxxxxx","configuration": { "defaultConfidenceThreshold": 90 }}

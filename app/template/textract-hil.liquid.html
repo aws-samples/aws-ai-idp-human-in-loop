@@ -1,0 +1,92 @@
+{% capture s3_read_iam_policy %}
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:{{ awsPartition }}:s3:::{{ task.input.inputS3Prefix | remove_first: "s3://" }}/*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "kms:Decrypt",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": [
+            "s3.{{ awsRegion }}.amazonaws.com"
+          ]
+        }
+      }
+    }
+  ]
+}
+{% endcapture -%}
+
+{% comment %}
+TODO: extend write path with per-worker/task id 
+{% endcomment -%}
+
+{% capture s3_sub_answer_write_iam_policy %}
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": "s3:PutObject",
+      "Resource": "arn:{{ awsPartition }}:s3:::{{ task.input.outputS3Prefix | remove_first: "s3://" }}/*",
+      "Condition": {
+        "StringEquals": {
+          "s3:x-amz-server-side-encryption": "aws:kms"
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncryptTo",
+        "kms:ReEncryptFrom",
+        "kms:GenerateDataKey",
+        "kms:GenerateDataKeyWithoutPlaintext"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "kms:ViaService": [
+            "s3.{{ awsRegion }}.amazonaws.com"
+          ]
+        }
+      }
+    }
+  ]
+}
+{% endcapture %}
+<html lang="en">
+  <head>
+      <meta charset="utf-8"/>
+      <link href="https://d2hunor7l3pa6d.cloudfront.net/main.css" rel="stylesheet">
+  </head>
+  <body>
+      <div hidden id="task-data">
+        {
+          "fileExtension": {{ task.input.fileExtension | to_json }},
+          "inputS3Prefix": {{ task.input.inputS3Prefix | to_json }},
+          "outputS3Prefix": {{ task.input.outputS3Prefix | to_json }},
+          "numberOfPages": {{ task.input.numberOfPages }},
+          "configuration": {{ task.input.configuration }},
+          "currPageNumber": {{ task.input.currPageNumber }},
+          "outputKmsKeyId": {{ task.input.outputKmsKeyId | to_json}},
+          "s3ReadCredentials": {{ s3_read_iam_policy | fetch_aws_credentials }},
+          "subAnswerWriteCredentials": {{ s3_sub_answer_write_iam_policy | fetch_aws_credentials }},
+          "awsRegion": {{ awsRegion | to_json }},
+          "textractJobId": {{ task.input.textractJobId | to_json }}
+      }
+      </div>
+
+      <div id="root">
+      
+      <script src="https://d2hunor7l3pa6d.cloudfront.net/main.js"/>
+  </body>
+</html>
