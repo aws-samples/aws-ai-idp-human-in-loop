@@ -50,7 +50,7 @@ def lambda_handler(event, context):
         sendSNSPagesComplete(jobId)
 
    
-    return
+    return [{"datasetObjectId":"0","consolidatedAnnotation":{"content":{"labelname":""}}}]
 
 
 # Job ID is located in JSON file that contains the annotations. Fist we need to load the meta file
