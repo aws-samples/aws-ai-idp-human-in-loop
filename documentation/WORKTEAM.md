@@ -52,7 +52,7 @@ Next we need to create a cognito group.
 10. Select the Groups tab and and click on create group. Enter a valid group name and click on create group. Once the group has been created you can navigate back to the user you created and add the user to this group.
 ![step-10](../images/cog10.png)
 
-11. Next we need to create a Cognito domain. Navigate to the app integration tab and then under domain select create custom cognito domain and enter a valid domain name.
+11. Next we need to create a Cognito domain. Navigate to the app integration tab and then under domain select create cognito domain and enter a valid domain name.
 
 ## Create Private Work Team In SageMaker
 From here we are going to navigate from the main AWS console to Sagemaker where we are going to create a private workteam.
