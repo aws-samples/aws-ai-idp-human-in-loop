@@ -4,7 +4,7 @@
 This doc walks you through setting up the Cognito user pool and the creation of a private Ground Truth work team for reviewing Textract output. The creation of our private team is done after the deployment of the SMGT HITL stack which creates the necessary infrastructure as shown in the [reference architecture document](./architecture/README.md).  
 
 To start clone CDK from here 
-https://gitlab.aws.dev/intelligent-document-processing/idp-ai-human-in-loop
+https://github.com/aws-samples/aws-ai-idp-human-in-loop
 
 For more information on CDK deployment
 https://docs.aws.amazon.com/cdk/v2/guide/getting_started.html
