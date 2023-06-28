@@ -28,59 +28,58 @@ def lambda_handler(event, context):
     logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))
     logger.info(json.dumps(event))
 
+    try:
+        labeling_job_arn = event["labelingJobArn"]
+        label_attribute_name = event["labelAttributeName"]
+        outputConfig = event['outputConfig']
+        
+        label_categories = None
+        if "label_categories" in event:
+            label_categories = event["labelCategories"]
+            print(" Label Categories are : " + label_categories)
 
-    labeling_job_arn = event["labelingJobArn"]
-    label_attribute_name = event["labelAttributeName"]
+        payload = event["payload"]
+        
+        
+        s3UrlParse = urlparse(outputConfig, allow_fragments=False)
+        bucket = s3UrlParse.netloc
 
-    label_categories = None
-    if "label_categories" in event:
-        label_categories = event["labelCategories"]
-        print(" Label Categories are : " + label_categories)
+        returnAnnots = do_consolidation(labeling_job_arn, payload, label_attribute_name)
+        
+        """Enumerate over annotations and delete each file assoicated with annotations and update by decrementing DynmoDB table tracking pages"""
+        for p in range(len(returnAnnots)):
 
-    payload = event["payload"]
-    role_arn = event["roleArn"]
+            inputKey = json.loads(returnAnnots[p]['consolidatedAnnotation']['content']['idp']['annotationsFromAllWorkers'][0]['annotationData']['content'])['inputPrefix'] + '/page/' + json.loads(returnAnnots[p]['consolidatedAnnotation']['content']['idp']['annotationsFromAllWorkers'][0]['annotationData']['content'])['inputFiles'][0]
+            outputKey = json.loads(returnAnnots[p]['consolidatedAnnotation']['content']['idp']['annotationsFromAllWorkers'][0]['annotationData']['content'])['answerPrefix'] + '/' + json.loads(returnAnnots[p]['consolidatedAnnotation']['content']['idp']['annotationsFromAllWorkers'][0]['annotationData']['content'])['answerFiles'][0]
+            jobId =getJobIdfromJSON(bucket,outputKey)
 
-    kms_key_id = None
-    if "kmsKeyId" in event:
-        kms_key_id = event["kmsKeyId"]
+            if len(jobId) == 0:
+                    logger.error("Unable to find textract JobId in JSON SMGT output")
+                    logger.info('No job ID found, exiting - returning')
+        
+            # go get pages left with the job ID from DynamoDB
+            pagesLeft = getPDFPagesLeft(jobId)
 
-    returnAnnots = do_consolidation(labeling_job_arn, payload, label_attribute_name)
+            # decrement pages left and update row in DynamoDB, then delete PDF page from S3
+            pagesLeft -= 1
+            logger.info(str(pagesLeft) + '-- Pages left')
+            updatetPDFPagesLeft(jobId,pagesLeft) 
+        
+            logger.info('Deleting PDF page')
+            deletePDFPage(jobId, inputKey)
 
-
-    # go grab the JSON file and extract textract Job ID and input S3 prefix to PDFs
-    response = getJobIdfromJSON(event)
-    jobId = response[0]
-    inputS3Prefix = response[1] 
-    inputKey = response[2]
-
-    if len(jobId) == 0:
-        logger.error("Unable to find textract JobId in JSON SMGT output")
-        logger.info('No job ID found, exiting - returning')
-        return
+            # notify customer via SNS topic that job review has been completed
+            if pagesLeft == 0 :
+                logger.info('Sending SNS notification')
+                sendSNSPagesComplete(jobId)
     
-    # go get pages left with the job ID from DynamoDB
-    pagesLeft = getPDFPagesLeft(jobId)
-    
-    logger.info(str(pagesLeft) + '-- Pages left')
 
-
-    # decrement pages left and update row in DynamoDB, then delete PDF page from S3
-    pagesLeft -= 1
-    logger.info('Updating pages count')
-    updatetPDFPagesLeft(jobId,pagesLeft) 
-    
-    logger.info('Deleting PDF page')
-    deletePDFPage(jobId, inputKey)
-
-    # notify customer via SNS topic that job review has been completed
-    if pagesLeft == 0 :
-        logger.info('Sending SNS notification')
-        sendSNSPagesComplete(jobId)
-   
-
-    logger.info('Exiting - Returning ' + json.dumps(returnAnnots))
-    return returnAnnots
-
+        logger.info('Exiting - Returning ' + json.dumps(returnAnnots))
+        return returnAnnots
+    except Exception as e:
+        logger.error("Unable to run post annotation clean up")
+        logger.error(e)
+        return ""
 
 
 # Job ID is located in JSON file that contains the annotations. Fist we need to load the meta file
@@ -88,28 +87,7 @@ def lambda_handler(event, context):
 # that contains the annotation output and the Job ID.
 # in addition the meta file that contains the location of the textract output from GT, also contains
 # the single paged PDF(TIFF) that will be removed.
-def getJobIdfromJSON(event):
-    
-    try:
-        bucketfileObjURI = event['payload']['s3Uri']
-        parsedS3uri = urlparse(bucketfileObjURI, allow_fragments=False)
-        bucket = parsedS3uri.netloc
-        fileObjKey = parsedS3uri.path.lstrip('/')
-        obj = s3.Object(bucket, fileObjKey)
-        gtOutputDoc = obj.get()['Body'].read().decode('utf-8') 
-        annotationData = json.loads(gtOutputDoc)[0]['annotations'][0]['annotationData']['content']
-        answerFile = json.loads(annotationData)['answerFiles'][0]
-        answerPrefix = json.loads(annotationData)['answerPrefix']
-        answerKey = answerPrefix + '/' + answerFile
-        
-        inputFile = json.loads(annotationData)['inputFiles'][0]
-        inputPrefix = json.loads(annotationData)['inputPrefix']
-        inputKey = inputPrefix + '/page/' + inputFile
-    except Exception as e:
-        logger.error("Unable to find meta JSON file containing path to Textract/GT output and path to single page PDF(TIFF)")
-        logger.error(e)
-        return ""
-
+def getJobIdfromJSON(bucket, answerKey):
     try:
 
         obj = s3.Object(bucket, answerKey)
@@ -117,13 +95,12 @@ def getJobIdfromJSON(event):
         jobId = json.loads(texttactAnnotation)['JobId']
 
 
-        return jobId, bucketfileObjURI, inputKey
+        return jobId
     
     except Exception as e:
         logger.error("Unable to find Textract/GT JSON file containing Job ID")
         logger.error(e)
         return ""
-
 
 def getPDFPagesLeft(jobId):
     try:
@@ -257,3 +234,5 @@ if __name__ == "__main__":
     context={} 
     response = lambda_handler(event,context)
     print (response)
+
+   
