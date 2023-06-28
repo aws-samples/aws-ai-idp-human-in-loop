@@ -6,6 +6,8 @@ import logging
 import boto3
 from boto3.dynamodb.types import TypeDeserializer
 from urllib.parse import urlparse
+from S3Functions import S3
+
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,25 @@ def lambda_handler(event, context):
     logger.setLevel(os.environ.get('LOG_LEVEL', 'INFO'))
     logger.info(json.dumps(event))
 
+
+    labeling_job_arn = event["labelingJobArn"]
+    label_attribute_name = event["labelAttributeName"]
+
+    label_categories = None
+    if "label_categories" in event:
+        label_categories = event["labelCategories"]
+        print(" Label Categories are : " + label_categories)
+
+    payload = event["payload"]
+    role_arn = event["roleArn"]
+
+    kms_key_id = None
+    if "kmsKeyId" in event:
+        kms_key_id = event["kmsKeyId"]
+
+    returnAnnots = do_consolidation(labeling_job_arn, payload, label_attribute_name)
+
+
     # go grab the JSON file and extract textract Job ID and input S3 prefix to PDFs
     response = getJobIdfromJSON(event)
     jobId = response[0]
@@ -34,23 +55,32 @@ def lambda_handler(event, context):
 
     if len(jobId) == 0:
         logger.error("Unable to find textract JobId in JSON SMGT output")
+        logger.info('No job ID found, exiting - returning')
         return
     
     # go get pages left with the job ID from DynamoDB
     pagesLeft = getPDFPagesLeft(jobId)
     
+    logger.info(str(pagesLeft) + '-- Pages left')
+
+
     # decrement pages left and update row in DynamoDB, then delete PDF page from S3
     pagesLeft -= 1
+    logger.info('Updating pages count')
     updatetPDFPagesLeft(jobId,pagesLeft) 
     
+    logger.info('Deleting PDF page')
     deletePDFPage(jobId, inputKey)
 
     # notify customer via SNS topic that job review has been completed
     if pagesLeft == 0 :
+        logger.info('Sending SNS notification')
         sendSNSPagesComplete(jobId)
-
    
-    return [{"datasetObjectId":"0","consolidatedAnnotation":{"content":{"labelname":""}}}]
+
+    logger.info('Exiting - Returning ' + json.dumps(returnAnnots))
+    return returnAnnots
+
 
 
 # Job ID is located in JSON file that contains the annotations. Fist we need to load the meta file
@@ -151,11 +181,79 @@ def sendSNSPagesComplete(jobId):
     
     return
 
+def do_consolidation(labeling_job_arn, payload, label_attribute_name):
+    """
+        Core Logic for consolidation
+
+    :param labeling_job_arn: labeling job ARN
+    :param payload:  payload data for consolidation
+    :param label_attribute_name: identifier for labels in output JSON
+    :param s3_client: S3 helper class
+    :return: output JSON string
+    """
+
+    # Extract payload data
+    if "s3Uri" in payload:
+        s3_ref = payload["s3Uri"]
+        path_parts = s3_ref.replace("s3://", "").split("/")
+        bucket = path_parts.pop(0)
+        keyObjName = "/".join(path_parts)
+
+        s3_object = s3.Object(bucket_name=bucket, key=keyObjName)
+        
+        payload = json.loads(s3_object.get().get('Body').read().decode('utf-8'))
+
+
+    # Payload data contains a list of data objects.
+    # Iterate over it to consolidate annotations for individual data object.
+    consolidated_output = []
+    success_count = 0  # Number of data objects that were successfully consolidated
+    failure_count = 0  # Number of data objects that failed in consolidation
+
+    for p in range(len(payload)):
+        response = None
+        try:
+            dataset_object_id = payload[p]['datasetObjectId']
+            log_prefix = "[{}] data object id [{}] :".format(labeling_job_arn, dataset_object_id)
+            #print("{} Consolidating annotations BEGIN ".format(log_prefix))
+
+            annotations = payload[p]['annotations']
+            #print("{} Received Annotations from all workers {}".format(log_prefix, annotations))
+
+ 
+
+            # Notice that, no consolidation is performed, worker responses are combined and appended to final output
+            # You can put your consolidation logic here
+            consolidated_annotation = {"annotationsFromAllWorkers": annotations} # TODO : Add your consolidation logic
+
+            # Build consolidation response object for an individual data object
+            response = {
+                "datasetObjectId": dataset_object_id,
+                "consolidatedAnnotation": {
+                    "content": {
+                        label_attribute_name: consolidated_annotation
+                    }
+                }
+            }
+
+            success_count += 1
+            #print("{} Consolidating annotations END ".format(log_prefix))
+
+            # Append individual data object response to the list of responses.
+            if response is not None:
+                consolidated_output.append(response)
+
+        except:
+            failure_count += 1
+            print(" Consolidation failed for dataobject {}".format(p))
+
+    #print("Consolidation Complete. Success Count {}  Failure Count {}".format(success_count, failure_count))
+
+
+    return consolidated_output
+
 if __name__ == "__main__":   
-    #event={"version":"2018-10-06","labelingJobArn":"arn:aws:sagemaker:eu-central-1:710096454740:labeling-job/idp-groundtruth-fccf52ef-e54d-499a-8cc9-f1280800e0a5","payload":{"s3Uri":"s3://idp-textract-output-bucket-8f2896c0-c1d3-5de7-9bbc-83e1f95efe27/idp-groundtruth-fccf52ef-e54d-499a-8cc9-f1280800e0a5/annotations/consolidated-annotation/consolidation-request/iteration-1/2023-04-17_15_48_07.json"},"labelAttributeName":"idp","roleArn":"arn:aws:iam::710096454740:role/idp-groundtruth-service-role","outputConfig":"s3://idp-textract-output-bucket-45d0c9d1-75f5-5824-9af7-c2a4131e76eb/idp-groundtruth-fccf52ef-e54d-499a-8cc9-f1280800e0a5/annotations","maxHumanWorkersPerDataObject":1}
-    event={"version":"2018-10-06","labelingJobArn":"arn:aws:sagemaker:eu-central-1:710096454740:labeling-job/idp-groundtruth-fccf52ef-e54d-499a-8cc9-f1280800e0a5","payload":{"s3Uri":"s3://idp-textract-output-bucket-8f2896c0-c1d3-5de7-9bbc-83e1f95efe27/idp-groundtruth-5d8ae0d2-246f-4734-8451-58d1b0ba490b/annotations/consolidated-annotation/consolidation-request/iteration-1/2023-04-19_18:19:40.json"},"labelAttributeName":"idp","roleArn":"arn:aws:iam::710096454740:role/idp-groundtruth-service-role","outputConfig":"s3://idp-textract-output-bucket-45d0c9d1-75f5-5824-9af7-c2a4131e76eb/idp-groundtruth-fccf52ef-e54d-499a-8cc9-f1280800e0a5/annotations","maxHumanWorkersPerDataObject":1}
+    event={"version":"2018-10-06"}
     context={} 
     response = lambda_handler(event,context)
     print (response)
-
-   
